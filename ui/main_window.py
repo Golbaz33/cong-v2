@@ -1,4 +1,4 @@
-# Fichier : ui/main_window.py (Version finale avec la colonne Date Reprise)
+# Fichier : ui/main_window.py (Version finale avec la colonne Date Reprise et appel HolidayManager corrigé)
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -17,7 +17,6 @@ from ui.widgets.secondary_windows import HolidaysManagerWindow, JustificatifsWin
 from ui.widgets.arabic_keyboard import ArabicKeyboard
 from ui.widgets.date_picker import DatePickerWindow
 from utils.file_utils import export_agents_to_excel, export_all_conges_to_excel, import_agents_from_excel
-# MODIFICATION : Import des fonctions nécessaires pour le calcul de la date de reprise
 from utils.date_utils import format_date_for_display, calculate_reprise_date, get_holidays_set_for_period
 from utils.config_loader import CONFIG
 
@@ -156,7 +155,6 @@ class MainWindow(tk.Tk):
         
         self.status_var = tk.StringVar(value="Prêt."); status_bar = ttk.Label(self, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W); status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
-    # ... (les méthodes de gestion d'agent/congé ne changent pas)
     def get_selected_agent_id(self):
         selection = self.list_agents.selection()
         return int(self.list_agents.item(selection[0])["values"][0]) if selection else None
@@ -195,8 +193,12 @@ class MainWindow(tk.Tk):
     def export_agents(self): export_agents_to_excel(self, self.db)
     def export_conges(self): export_all_conges_to_excel(self, self.db)
     def import_agents(self): import_agents_from_excel(self, self.db)
-    def open_holidays_manager(self): HolidaysManagerWindow(self, self.db)
-    def open_justificatifs_suivi(self): JustificatifsWindow(self, self.db)
+    
+    # CORRECTION : Passer le manager complet à HolidaysManagerWindow
+    def open_holidays_manager(self): HolidaysManagerWindow(self, self.manager)
+    
+    # CORRECTION : S'assurer que JustificatifsWindow reçoit bien le db_manager
+    def open_justificatifs_suivi(self): JustificatifsWindow(self, self.manager.db)
 
     def refresh_all(self, agent_to_select_id=None):
         current_selection = agent_to_select_id or self.get_selected_agent_id()
@@ -242,7 +244,6 @@ class MainWindow(tk.Tk):
                 logging.warning(f"Date invalide ou nulle pour congé ID {c.id}")
         
         for annee in sorted(conges_par_annee.keys(), reverse=True):
-            # MODIFICATION : Calcul et affichage
             total_jours = sum(c.jours_pris for c in conges_par_annee[annee] if c.type_conge == 'Congé annuel' and c.statut == 'Actif')
             # MODIFICATION : Ajout d'une colonne vide pour la date de reprise dans le résumé annuel
             summary_id = self.list_conges.insert("", "end", values=("", "", f"📅 ANNÉE {annee}", "", "", "", total_jours, f"{total_jours} jours pris", ""), tags=("summary",), open=True)

@@ -210,3 +210,40 @@ class CongeManager:
                 if os.path.exists(original_path): os.remove(original_path)
             except Exception as e:
                 logging.error(f"Impossible de supprimer l'ancien certificat pour conge_id {conge_id}: {e}")
+
+    def find_inconsistent_annual_leaves(self, year):
+        """
+        Analyse les congés annuels d'une année donnée pour trouver des incohérences.
+        Une incohérence survient lorsque le nombre de jours pris stocké ne correspond
+        plus au calcul des jours ouvrés (suite à un ajout/suppression de jour férié).
+
+        Retourne une liste de tuples contenant (Conge, jours_ouvres_recalculés).
+        """
+        inconsistent_leaves = []
+        try:
+            # 1. Récupérer tous les congés annuels actifs de l'année
+            query = "SELECT * FROM conges WHERE type_conge = 'Congé annuel' AND statut = 'Actif' AND strftime('%Y', date_debut) = ?"
+            leaves_rows = self.db.execute_query(query, (str(year),), fetch="all")
+            
+            if not leaves_rows:
+                return []
+
+            # 2. Charger l'ensemble des jours fériés pour cette période
+            holidays_set = get_holidays_set_for_period(self.db, year, year)
+            
+            # 3. Itérer et comparer
+            for row in leaves_rows:
+                conge = Conge.from_db_row(row)
+                
+                # Recalculer les jours ouvrés avec la liste de fériés actuelle
+                recalculated_days = jours_ouvres(conge.date_debut, conge.date_fin, holidays_set)
+                
+                # S'il y a une différence, on l'ajoute à la liste des problèmes
+                if conge.jours_pris != recalculated_days:
+                    inconsistent_leaves.append((conge, recalculated_days))
+                    
+        except Exception as e:
+            logging.error(f"Erreur lors de l'audit des congés pour l'année {year}: {e}", exc_info=True)
+            return []
+            
+        return inconsistent_leaves            

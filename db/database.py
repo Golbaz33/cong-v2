@@ -1,5 +1,4 @@
 # db/database.py
-
 import sqlite3
 from tkinter import messagebox
 import logging
@@ -136,11 +135,6 @@ class DatabaseManager:
         r = self.execute_query("SELECT id, nom, prenom, ppr, grade, solde FROM agents WHERE id=?", (agent_id,), fetch="one")
         return Agent.from_db_row(r) if r else None
         
-    def get_agent_by_ppr(self, ppr):
-        """Récupère un agent par son numéro PPR."""
-        r = self.execute_query("SELECT id, nom, prenom, ppr, grade, solde FROM agents WHERE ppr=?", (ppr,), fetch="one")
-        return Agent.from_db_row(r) if r else None
-
     def get_conges(self, agent_id=None):
         q, p = "SELECT id, agent_id, type_conge, justif, interim_id, date_debut, date_fin, jours_pris, statut FROM conges", ()
         if agent_id: q += " WHERE agent_id=? ORDER BY date_debut DESC"; p = (agent_id,)
@@ -152,22 +146,15 @@ class DatabaseManager:
         return Conge.from_db_row(r) if r else None
 
     def ajouter_agent(self, nom, prenom, ppr, grade, solde):
-        try:
-            self.execute_query("INSERT INTO agents (nom, prenom, ppr, grade, solde) VALUES (?, ?, ?, ?, ?)", (nom.strip(), prenom.strip(), ppr.strip(), grade.strip(), solde))
-            return True
-        except sqlite3.IntegrityError:
-            return False
+        try: self.execute_query("INSERT INTO agents (nom, prenom, ppr, grade, solde) VALUES (?, ?, ?, ?, ?)",(nom.strip(), prenom.strip(), ppr.strip(), grade.strip(), solde)); return True
+        except sqlite3.IntegrityError: return False
 
     def modifier_agent(self, agent_id, nom, prenom, ppr, grade, solde):
-        try:
-            self.execute_query("UPDATE agents SET nom=?, prenom=?, ppr=?, grade=?, solde=? WHERE id=?", (nom.strip(), prenom.strip(), ppr.strip(), grade.strip(), solde, agent_id))
-            return True
-        except sqlite3.IntegrityError:
-            return False
+        try: self.execute_query("UPDATE agents SET nom=?, prenom=?, ppr=?, grade=?, solde=? WHERE id=?",(nom.strip(), prenom.strip(), ppr.strip(), grade.strip(), solde, agent_id)); return True
+        except sqlite3.IntegrityError: return False
 
     def supprimer_agent(self, agent_id):
-        self.execute_query("DELETE FROM agents WHERE id=?", (agent_id,))
-        return True
+        self.execute_query("DELETE FROM agents WHERE id=?", (agent_id,)); return True
 
     def get_holidays_for_year(self, year):
         return self.execute_query("SELECT date, nom, type FROM jours_feries_personnalises WHERE strftime('%Y', date) = ? ORDER BY date", (str(year),), fetch="all")
@@ -180,3 +167,37 @@ class DatabaseManager:
         p = [agent_id, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         if conge_id_exclu: q += " AND id != ?"; p.append(conge_id_exclu)
         return [Conge.from_db_row(r) for r in self.execute_query(q, tuple(p), fetch="all") if r]
+    
+    # --- MÉTHODES MANQUANTES AJOUTÉES ICI ---
+
+    def add_or_update_holiday(self, date_sql, name, h_type):
+        """Ajoute ou met à jour un jour férié. Idéal pour les jours automatiques."""
+        query = "REPLACE INTO jours_feries_personnalises (date, nom, type) VALUES (?, ?, ?)"
+        self.execute_query(query, (date_sql, name, h_type))
+        return True
+
+    def add_holiday(self, date_sql, name, h_type):
+        """Ajoute un jour férié personnalisé. Retourne False si la date existe déjà."""
+        try:
+            query = "INSERT INTO jours_feries_personnalises (date, nom, type) VALUES (?, ?, ?)"
+            self.execute_query(query, (date_sql, name, h_type))
+            return True
+        except sqlite3.IntegrityError: # Se produit si la clé primaire (date) existe déjà
+            return False
+
+    def delete_holiday(self, date_sql):
+        """Supprime un jour férié par sa date."""
+        self.execute_query("DELETE FROM jours_feries_personnalises WHERE date = ?", (date_sql,))
+        return True
+        
+    def get_maladies_sans_certificat(self):
+        """Récupère les congés maladie actifs sans justificatif associé."""
+        query = """
+            SELECT a.nom, a.prenom, a.ppr, c.date_debut, c.date_fin, c.jours_pris
+            FROM conges c
+            JOIN agents a ON c.agent_id = a.id
+            LEFT JOIN certificats_medicaux cm ON c.id = cm.conge_id
+            WHERE c.type_conge = 'Congé de maladie' AND c.statut = 'Actif' AND cm.id IS NULL
+            ORDER BY c.date_debut DESC
+        """
+        return self.execute_query(query, fetch="all")
